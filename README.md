@@ -27,7 +27,8 @@ An example H-Bridge that uses this mode is the cheap 43A IBT-2 found on ebay.
 
 ## MODE3: Support for Adafruit Motor Controller Shield v1
 This mode requires importing the Adafruit library, and uses the library exclusively for setting
-speed and rotation of the motors.
+speed and rotation of the motors.  It does not use the SM3 PWM code directly, as these controllers
+are controlled by SPI.
 
 ## Software Setup
 
