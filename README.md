@@ -25,6 +25,10 @@ the PWM duty needs to be inverted whenever the motor changes direction with the 
 (An alternate approach would be to switch the PWM between inputs as direction changes)
 An example H-Bridge that uses this mode is the cheap 43A IBT-2 found on ebay.
 
+## MODE3: Support for Adafruit Motor Controller Shield v1
+This mode requires importing the Adafruit library, and uses the library exclusively for setting
+speed and rotation of the motors.
+
 ## Software Setup
 
 - As the SMC3 is an Arduino motor controller the first thing you need to do is get the software onto your "Arduino UNO R3".
