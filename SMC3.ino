@@ -8,7 +8,17 @@
 
 #define MODE1    
 
-// #define REVERSE_MOTOR1
+// Uncomment the following line to reverse the direction of Motor 1.
+
+//#define REVERSE_MOTOR1
+
+// Uncomment ONE of the following lines to enable analogue input AN5 as a scaler for the motion values.
+
+// #define ENABLE_POT_SCALING
+// #define ENABLE_NON_LINEAR_POT_SCALING
+
+// Uncomment the following line to enable the second software serial port.
+// NOTE: This is currently not working - leave commented out until fixed!!!
 
 // #define SECOND_SERIAL
 
@@ -43,7 +53,7 @@
 //    A0 - Motor 1 Feedback
 //    A1 - Motor 2 Feedback
 //    A2 - Motor 3 Feedback
-
+//    A5 - Motion scaler pot input
 
 
 
@@ -80,6 +90,7 @@ int Feedback3 = 512;
 int Target1 = 512;
 int Target2 = 512;
 int Target3 = 512;
+int PotInput = 512;
 
 unsigned int RxByte[2]={0};         // Current byte received from each of the two comm ports
 int BufferEnd[2]={-1};              // Rx Buffer end index for each of the two comm ports
@@ -87,6 +98,8 @@ unsigned int RxBuffer[5][2]={0};    // 5 byte Rx Command Buffer for each of the 
 unsigned long LoopCount	= 0;        // unsigned 32bit, 0 to 4,294,967,295 to count times round loop
 unsigned long LastCount = 0;        // loop counter the last time it was read so can calc delta
 byte errorcount	= 0;                // serial receive error detected by invalid packet start/end bytes
+unsigned int CommsTimeout = 0;      // used to reduce motor power if there has been no comms for a while
+byte PowerScale = 7;                // used to divide(shift) PID result changes when in low power
 
 // 
 //
@@ -111,7 +124,7 @@ byte errorcount	= 0;                // serial receive error detected by invalid 
 //  Motor 3 Pot   A2|o   |    |                       o|3~     Motor 1 ENB
 //                A3|o   |    |                       o|2      Motor 1 ENA
 //                A4|o   |    |                       o|1
-//                A5|o   +-/\-+                       o|0
+//  Motion Scaler A5|o   +-/\-+                       o|0
 //                  +-\                      /---------+
 //                     \--------------------/
 //
@@ -130,6 +143,7 @@ const int PWMpin3 =11;         // PWM output pin for Motor 3
 const int FeedbackPin1 = A0;   // Motor 1 feedback pin
 const int FeedbackPin2 = A1;   // Motor 2 feedback pin
 const int FeedbackPin3 = A2;   // Motor 3 feedback pin
+const int PotInputPin = A5;  // User adjustable POT used to scale the motion (if enabled)
 
 int DeadZone1 = 0;  // feedback deadzone		
 int DeadZone2 = 0;  // feedback deadzone
@@ -599,7 +613,8 @@ int DeltaLoopCount()
 
 void ParseCommand(int ComPort)
 {
-  
+    CommsTimeout = 0;    // reset the comms timeout counter to indicate we are getting packets
+    
     switch (RxBuffer[0][ComPort]) 
     {
         case 'A':
@@ -608,11 +623,103 @@ void ParseCommand(int ComPort)
             Target1=1023-Target1;
 #endif
 
+#ifdef ENABLE_POT_SCALING
+            if (PotInput < 25)
+            {
+                Target1 = 512;     // Center Motor1  
+            }
+            else if (PotInput < 1000)
+            {
+                Target1 = int(float(Target1-512) * (0.0 + float(PotInput) * 0.001)) + 512;
+            }
+#endif
+
+#ifdef ENABLE_NON_LINEAR_POT_SCALING
+            if (PotInput < 25)
+            {
+                Target1 = 512;     // Center Motor1  
+            }
+            else if (PotInput < 512)
+            {
+                Target1 = (Target1 - 512) << 1;
+                if (Target1 < 0)
+                {
+                    Target1 = int((-Target1 - float((double(Target1) * double(Target1))) * 0.000488) * float(PotInput * 0.001953));
+                    Target1 = (-Target1 >> 1) + 512;
+                }
+                else
+                {
+                    Target1 = int((Target1 - float((double(Target1) * double(Target1))) * 0.000488) * float(PotInput * 0.001953));
+                    Target1 = (Target1 >> 1) + 512;
+                }
+            }
+            else if (PotInput < 1000)
+            {
+                Target1 = (Target1 - 512) << 1;
+                if (Target1 < 0)
+                {
+                    Target1 = int(-Target1 - float((double(Target1) * double(Target1) * double(1024 - PotInput))) * 0.000000953674);
+                    Target1= (-Target1 >> 1) + 512;
+                }
+                else
+                {
+                    Target1 = int(Target1 - float((double(Target1) * double(Target1) * double(1024 - PotInput))) * 0.000000953674);
+                    Target1= (Target1 >> 1) + 512;
+                }
+            }
+#endif
+
             if (Target1>InputClipMax1) { Target1=InputClipMax1; }
             else if (Target1<InputClipMin1) { Target1=InputClipMin1; }
             break;
         case 'B':
             Target2=(RxBuffer[1][ComPort]*256)+RxBuffer[2][ComPort];
+#ifdef ENABLE_POT_SCALING
+            if (PotInput < 25)
+            {
+                Target2 = 512;     // Center Motor1  
+            }
+            else if (PotInput < 1000)
+            {
+                Target2 = int(float(Target2-512) * (0.0 + float(PotInput) * 0.001)) + 512;
+            }
+#endif
+
+#ifdef ENABLE_NON_LINEAR_POT_SCALING
+            if (PotInput < 25)
+            {
+                Target2 = 512;     // Center Motor1  
+            }
+            else if (PotInput < 512)
+            {
+                Target2 = (Target2 - 512) << 1;
+                if (Target2 < 0)
+                {
+                    Target2 = int((-Target2 - float((double(Target2) * double(Target2))) * 0.000488) * float(PotInput * 0.001953));
+                    Target2 = (-Target2 >> 1) + 512;
+                }
+                else
+                {
+                    Target2 = int((Target2 - float((double(Target2) * double(Target2))) * 0.000488) * float(PotInput * 0.001953));
+                    Target2 = (Target2 >> 1) + 512;
+                }
+            }
+            else if (PotInput < 1000)
+            {
+                Target2 = (Target2 - 512) << 1;
+                if (Target2 < 0)
+                {
+                    Target2 = int(-Target2 - float((double(Target2) * double(Target2) * double(1024 - PotInput))) * 0.000000953674);
+                    Target2= (-Target2 >> 1) + 512;
+                }
+                else
+                {
+                    Target2 = int(Target2 - float((double(Target2) * double(Target2) * double(1024 - PotInput))) * 0.000000953674);
+                    Target2= (Target2 >> 1) + 512;
+                }
+            }
+#endif
+
             if (Target2>InputClipMax2) { Target2=InputClipMax2; }
             else if (Target2<InputClipMin2) { Target2=InputClipMin2; }
             break;
@@ -842,7 +949,7 @@ void ParseCommand(int ComPort)
         case 'v':
             if (RxBuffer[1][ComPort]=='e' && RxBuffer[2][ComPort]=='r')   // Send back the SMC3 software version
             {
-                SendValue('v',63,ComPort);     // Software Version - divide by 100 to get version - ie 101= ver1.01
+                SendValue('v',70,ComPort);     // Software Version - divide by 100 to get version - ie 101= ver1.01
             }
             break;
         case 'e':
@@ -1322,7 +1429,7 @@ int CalcMotor1PID(int TargetPosition, int CurrentPosition)
         KdFilterCount=0;    
     }
     
-    return constrain((pTerm_x100 + iTerm_x100 - dTerm_x100) >> 7 ,-255,255);   //  the /128 is an approximation to bring x100 terms back to units.  Accurate/consistent enough for this function.
+    return constrain((pTerm_x100 + iTerm_x100 - dTerm_x100) >> PowerScale ,-255,255);   //  the /128 (PowerScale) is an approximation to bring x100 terms back to units.  Accurate/consistent enough for this function.
 }
 
 int CalcMotor2PID(int TargetPosition, int CurrentPosition)   
@@ -1363,7 +1470,7 @@ int CalcMotor2PID(int TargetPosition, int CurrentPosition)
         KdFilterCount=0;    
     }
     
-    return constrain((pTerm_x100 + iTerm_x100 - dTerm_x100) >> 7 ,-255,255);   //  the /128 is an approximation to bring x100 terms back to units.  Accurate/consistent enough for this function.
+    return constrain((pTerm_x100 + iTerm_x100 - dTerm_x100) >> PowerScale ,-255,255);   //  the /128 is an approximation to bring x100 terms back to units.  Accurate/consistent enough for this function.
 }
 
 int CalcMotor3PID(int TargetPosition, int CurrentPosition)   
@@ -1404,7 +1511,7 @@ int CalcMotor3PID(int TargetPosition, int CurrentPosition)
         KdFilterCount=0;    
     }
     
-    return constrain((pTerm_x100 + iTerm_x100 - dTerm_x100) >> 7 ,-255,255);   //  the /128 is an approximation to bring x100 terms back to units.  Accurate/consistent enough for this function.
+    return constrain((pTerm_x100 + iTerm_x100 - dTerm_x100) >> PowerScale ,-255,255);   //  the /128 is an approximation to bring x100 terms back to units.  Accurate/consistent enough for this function.
 }
 
 
@@ -1516,11 +1623,6 @@ void loop()
     while (1==1) 
     {
 
-// while ((micros() - TimesUp) < PROCESS_PERIOD_uS)
-//  {
-// do something
-//  }
-
         // Wait until its time and then update PID calcs for first motor
 
         while ((micros() - TimesUp) < PROCESS_PERIOD_uS) { ; }
@@ -1610,6 +1712,30 @@ void loop()
                SendTwoValues('c',PIDProcessDivider*16 + Disable1+(Disable2*2)+(Disable3*4),constrain(PWMout3,0,255),SerialFeedbackPort);
             }
             SerialFeedbackCounter = 0;
+
+#ifdef ENABLE_POT_SCALING
+            PotInput = PotInput * 0.9;
+            PotInput = PotInput + (0.1 * analogRead(PotInputPin));  // Also read the User Pot Input every 20ms
+#endif
+
+#ifdef ENABLE_NON_LINEAR_POT_SCALING
+            PotInput = PotInput * 0.9;
+            PotInput = PotInput + (0.1 * analogRead(PotInputPin));  // Also read the User Pot Input every 20ms
+#endif
+
         }
+
+        CommsTimeout++;
+        if (CommsTimeout >= 60000)       // 15 second timeout ie 60000 * PROCESS_PERIOD_uS
+        {
+            CommsTimeout = 60000;        // So the counter doesn't overflow
+            PowerScale = 9; 
+        }
+        else
+        {
+            PowerScale = 7;              // Number of bits to shift PID result (ie divide by 128 - approximate for /100)
+        }
+
+
     }
 }
