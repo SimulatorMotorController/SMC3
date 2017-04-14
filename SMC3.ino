@@ -5,8 +5,16 @@
 
 // Set to MODE1 for use with a typical H-Bride that requires PWM and 1 or 2 direction inputs
 // Set to MODE2 for a 43A "Chinese" IBT-2 H-Bridge from e-bay or equiv
+// Set to MODE3 for Adafruit Motor Controller V1
 
-#define MODE1    
+#define MODE3
+
+#ifdef MODE3
+#include <AFMotor.h>
+AF_DCMotor motor1(1);
+AF_DCMotor motor2(2);
+AF_DCMotor motor3(3);
+#endif
 
 // Uncomment the following line to reverse the direction of Motor 1.
 
@@ -349,12 +357,14 @@ void DisableMotor3();
 
 void setup()
 {
-    Serial.begin(500000);     //115200
+    Serial.begin(250000);     //115200
     // set the data rate for the SoftwareSerial port
 #ifdef SECOND_SERIAL
     mySerial.begin(115200);  
 #endif    
     OutputPort=PORTD;
+
+#ifndef MODE3
     pinMode(ENApin1, OUTPUT);
     pinMode(ENBpin1, OUTPUT);
     pinMode(ENApin2, OUTPUT);
@@ -367,6 +377,7 @@ void setup()
     MyPWMWrite(PWMpin1,0);      //analogWrite(PWMpin1, 0);
     MyPWMWrite(PWMpin2,0);      //analogWrite(PWMpin2, 0);
     analogWrite(PWMpin3, 0);
+#endif
     DisableMotor1();
     DisableMotor2();
     DisableMotor3();
@@ -969,6 +980,10 @@ void ParseCommand(int ComPort)
                 OutputPort |= 1 << ENBpin3;           // Set Motor3 In 2
                 PORTD = OutputPort;
 #endif
+
+#ifdef MODE3
+                // Adafruit Motor Controller
+#endif
             }
             else if (RxBuffer[1][ComPort]=='n' && RxBuffer[2][ComPort]=='1')   // Enable motor 1
             {
@@ -1383,6 +1398,63 @@ void SetOutputsMotor3()   // MODE2
 
 #endif
 
+#ifdef MODE3
+void SetOutputsMotor1(){
+    if((Feedback1 > InputClipMax1) && (PWMrev1 != 0))
+    {
+       PWMout1 = PWMrev1;
+       OutputPort &= ~(1 << ENApin1);  // Unset Motor1 In 1
+       //MyPWMWrite(PWMpin1, PWMrev1);
+       motor1.setSpeed(PWMrev1);
+       motor1.run(BACKWARD);
+    }
+    else if((Feedback1<InputClipMin1) && (PWMrev1 != 0))
+    {
+       PWMout1 = PWMrev1;
+       OutputPort |= 1 << ENApin1;    // Set Motor1 In 1
+       //MyPWMWrite(PWMpin1, 255-PWMrev1);
+       motor1.setSpeed(255-PWMrev1);
+       motor1.run(FORWARD);
+    }
+    else if((Target1 > (Feedback1 + DeadZone1)) || (Target1 < (Feedback1 - DeadZone1)))
+    {
+        if (PWMout1 >= 0)
+        {
+            // Drive Motor Forward
+            PWMout1+=PWMoffset1;
+            if(PWMout1 > (PWMmax1+LiftFactor1)){PWMout1=PWMmax1+LiftFactor1;}
+            OutputPort |= 1 << ENApin1;           // Set Motor1 In 1
+            //MyPWMWrite(PWMpin1, 255-PWMout1);    // Motor driven when PWM=0 (unset)
+            motor1.setSpeed(255-PWMout1);
+            motor1.run(FORWARD);
+        }
+        else
+        {
+            // Drive Motor Backwards
+            PWMout1 = abs(PWMout1);
+            PWMout1+=PWMoffset1;
+            if(PWMout1 > PWMmax1){PWMout1=PWMmax1;}
+            OutputPort &= ~(1 << ENApin1);        // Unset Motor1 In 1
+            //MyPWMWrite(PWMpin1, PWMout1);        // Motor driven when PWM=1 (set)
+            motor1.setSpeed(PWMout1);
+            motor1.run(BACKWARD);
+        }
+    }
+    else
+    {
+        // Brake Motor
+        OutputPort &= ~(1 << ENApin1);        // Unset Motor1 In 1
+        PWMout1=PWMoffset1;
+        //MyPWMWrite(PWMpin1, 0);
+        motor1.setSpeed(0);
+        motor1.run(RELEASE);
+    }
+    PORTD = OutputPort;
+}
+void SetOutputsMotor2(){}
+void SetOutputsMotor3(){}
+#endif
+
 
 
 
@@ -1522,6 +1594,7 @@ int CalcMotor3PID(int TargetPosition, int CurrentPosition)
 //          
 //****************************************************************************************************************
 
+#ifndef MODE3
 void DisableMotor1()
 {
     Disable1 = 1;
@@ -1560,7 +1633,25 @@ void DisableMotor3()
     analogWrite(PWMpin3, 0);
 
 }
+#endif
 
+#ifdef MODE3
+void DisableMotor1()
+{
+    Disable1 = 1;
+    motor1.run(RELEASE);
+}
+void DisableMotor2()
+{
+    Disable2 = 1;
+    motor2.run(RELEASE);
+}
+void DisableMotor3()
+{
+    Disable3 = 1;
+    motor3.run(RELEASE);
+}
+#endif
 
 void TogglePin()
 {
