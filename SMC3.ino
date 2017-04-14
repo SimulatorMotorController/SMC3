@@ -6,8 +6,11 @@
 // Set to MODE1 for use with a typical H-Bride that requires PWM and 1 or 2 direction inputs
 // Set to MODE2 for a 43A "Chinese" IBT-2 H-Bridge from e-bay or equiv
 
-#define MODE2    
+#define MODE1    
 
+// #define REVERSE_MOTOR1
+
+// #define SECOND_SERIAL
 
 //    COMMAND SET:
 //
@@ -83,7 +86,7 @@ int BufferEnd[2]={-1};              // Rx Buffer end index for each of the two c
 unsigned int RxBuffer[5][2]={0};    // 5 byte Rx Command Buffer for each of the two comm ports
 unsigned long LoopCount	= 0;        // unsigned 32bit, 0 to 4,294,967,295 to count times round loop
 unsigned long LastCount = 0;        // loop counter the last time it was read so can calc delta
-byte errorcount	= 0;                // serial receive error detected by checksum
+byte errorcount	= 0;                // serial receive error detected by invalid packet start/end bytes
 
 // 
 //
@@ -191,8 +194,9 @@ int PWMrev3 = 200;
 unsigned int Timer1FreqkHz = 25;   // PWM freq used for Motor 1 and 2
 unsigned int Timer2FreqkHz = 31;   // PWM freq used for Motor 3
 
-
+#ifdef SECOND_SERIAL
 SoftwareSerial mySerial(12, 13);    // RX, TX
+#endif
 
 //****************************************************************************************************************
 //    Setup the PWM pin frequencies
@@ -333,8 +337,9 @@ void setup()
 {
     Serial.begin(500000);     //115200
     // set the data rate for the SoftwareSerial port
+#ifdef SECOND_SERIAL
     mySerial.begin(115200);  
-    
+#endif    
     OutputPort=PORTD;
     pinMode(ENApin1, OUTPUT);
     pinMode(ENBpin1, OUTPUT);
@@ -519,11 +524,13 @@ void SendTwoValues(int id, int v1, int v2, int ComPort)
     }
     else
     {
+#ifdef SECOND_SERIAL
         mySerial.write(START_BYTE);
         mySerial.write(id);
         mySerial.write(v1);
         mySerial.write(v2);
         mySerial.write(END_BYTE);
+#endif
     }
 }
 
@@ -550,11 +557,13 @@ void SendValue(int id, int value, int ComPort)
     }
     else
     {
+#ifdef SECOND_SERIAL
         mySerial.write(START_BYTE);
         mySerial.write(id);
         mySerial.write(high);
         mySerial.write(low);
         mySerial.write(END_BYTE);
+#endif
     }
 }
 
@@ -595,6 +604,10 @@ void ParseCommand(int ComPort)
     {
         case 'A':
             Target1=(RxBuffer[1][ComPort]*256)+RxBuffer[2][ComPort];
+#ifdef REVERSE_MOTOR1
+            Target1=1023-Target1;
+#endif
+
             if (Target1>InputClipMax1) { Target1=InputClipMax1; }
             else if (Target1<InputClipMin1) { Target1=InputClipMin1; }
             break;
@@ -614,7 +627,11 @@ void ParseCommand(int ComPort)
                 switch (RxBuffer[2][ComPort]) 
                 {
                     case 'A':
+#ifdef REVERSE_MOTOR1
+                        SendTwoValues('A',(1023-Feedback1)/4,(1023-Target1)/4,ComPort);
+#else
                         SendTwoValues('A',Feedback1/4,Target1/4,ComPort);
+#endif
                         break;
                     case 'B':
                         SendTwoValues('B',Feedback2/4,Target2/4,ComPort);
@@ -699,6 +716,7 @@ void ParseCommand(int ComPort)
                         break;
                     case 'Z':
                         SendValue('Z',DeltaLoopCount(),ComPort);
+//                        SendValue('Z',errorcount,ComPort);            // *** TEMP CODE FOR ETESTING
                         break;
                     case '~':
                         SendTwoValues('~',Timer1FreqkHz,Timer2FreqkHz,ComPort);  // PWM Frequencies to set
@@ -824,7 +842,7 @@ void ParseCommand(int ComPort)
         case 'v':
             if (RxBuffer[1][ComPort]=='e' && RxBuffer[2][ComPort]=='r')   // Send back the SMC3 software version
             {
-                SendValue('v',60,ComPort);     // Software Version - divide by 100 to get version - ie 101= ver1.01
+                SendValue('v',63,ComPort);     // Software Version - divide by 100 to get version - ie 101= ver1.01
             }
             break;
         case 'e':
@@ -900,7 +918,7 @@ void CheckSerial0()
         if(BufferEnd[COM0]==-1)
         {
             RxByte[COM0] = Serial.read();
-            if(RxByte[COM0] != START_BYTE){BufferEnd[COM0]=-1;}else{BufferEnd[COM0]=0;}
+            if(RxByte[COM0] != START_BYTE){BufferEnd[COM0]=-1;errorcount++;}else{BufferEnd[COM0]=0;}
         }
         else
         {
@@ -926,6 +944,7 @@ void CheckSerial0()
 
 void CheckSerial1()
 {
+#ifdef SECOND_SERIAL
     while(mySerial.available()) 
     {
         if(BufferEnd[COM1]==-1)
@@ -952,6 +971,7 @@ void CheckSerial1()
             }
         }
     }
+#endif
 }
 
 
@@ -1488,7 +1508,7 @@ void loop()
 
     // Initialise the PID ready timer
 
-    TimesUp = micros() + PROCESS_PERIOD_uS;
+    TimesUp = micros();
     PIDProcessCounter=0;
     
     // Main Program loop
@@ -1496,9 +1516,14 @@ void loop()
     while (1==1) 
     {
 
+// while ((micros() - TimesUp) < PROCESS_PERIOD_uS)
+//  {
+// do something
+//  }
+
         // Wait until its time and then update PID calcs for first motor
 
-        while ((micros()<TimesUp) || ((micros()>TIMER_UPPER_LIMIT) && (TimesUp<TIMER_LOWER_LIMIT))) { ; }
+        while ((micros() - TimesUp) < PROCESS_PERIOD_uS) { ; }
         TimesUp += PROCESS_PERIOD_uS;
         TogglePin();                      // Used for testing to monitor PID timing on Oscilloscope
 
@@ -1513,21 +1538,42 @@ void loop()
             Feedback1 = analogRead(FeedbackPin1);
             if ((Feedback1 > CutoffLimitMax1) || (Feedback1 < CutoffLimitMin1)) { DisableMotor1(); } 
             PWMout1=CalcMotor1PID(Target1,Feedback1);
-            if (Disable1==0) { SetOutputsMotor1(); }
+            if (Disable1==0) 
+            { 
+                SetOutputsMotor1(); 
+            }
+            else
+            {
+                PWMout1=0;
+            }
 
             // Check and Update Motor 2 drive
 
             Feedback2 = analogRead(FeedbackPin2);
             if ((Feedback2 > CutoffLimitMax2) || (Feedback2 < CutoffLimitMin1)) { DisableMotor2(); } 
             PWMout2=CalcMotor2PID(Target2,Feedback2);
-            if (Disable2==0) { SetOutputsMotor2(); }
+            if (Disable2==0) 
+            { 
+                SetOutputsMotor2();
+            }
+            else
+            {
+                PWMout2=0;
+            }
 
             // Check and Update Motor 3 drive
 
             Feedback3 = analogRead(FeedbackPin3);
             if ((Feedback3 > CutoffLimitMax3) || (Feedback3 < CutoffLimitMin1)) { DisableMotor3(); } 
             PWMout3=CalcMotor3PID(Target3,Feedback3);
-            if (Disable3==0) { SetOutputsMotor3(); }
+            if (Disable3==0) 
+            { 
+                SetOutputsMotor3(); 
+            }
+            else
+            {
+                PWMout3=0;
+            }
 
             LoopCount++;
         }
@@ -1546,7 +1592,11 @@ void loop()
             SerialFeedbackPort = (SerialFeedbackEnabled >> 4) & 0x01;
             if  ((SerialFeedbackEnabled & 0x03) == 1)     // Monitor Motor 1
             {
+#ifdef REVERSE_MOTOR1
+               SendTwoValues('A',(1023-Feedback1)/4,(1023-Target1)/4,SerialFeedbackPort);
+#else
                SendTwoValues('A',Feedback1/4,Target1/4,SerialFeedbackPort);
+#endif
                SendTwoValues('a',PIDProcessDivider*16 + Disable1+(Disable2*2)+(Disable3*4),constrain(PWMout1,0,255),SerialFeedbackPort);
             }
             else if  ((SerialFeedbackEnabled & 0x03) == 2)     // Monitor Motor 2
