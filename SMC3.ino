@@ -65,7 +65,7 @@ typedef struct {
   int speedMin;            // The minimum speed which the motor should run (0-255)
   int speedMax;            // The maximum speed which the motor should limit (0-255)
   int direction;           // intended direction of motor FORWARD or REVERSE
-  int backupSpeed;         // The speed which should be used to reverse if we overshoot (0-255)
+  int adjustSpeed;         // The speed which should be used to adjust if we overshoot (0-255)
   int feedbackPin;         // analog input pin for positioning feedback
   bool enabled;            // motor has been authorized to move
   int stopPosition;        // target position for axis parking 
@@ -112,15 +112,14 @@ void sendSerialFeedback() {
   if (serialFeedback == 0) {
     return;
   } else if (serialFeedback == 1) {
-    sendValues('A', (1023 - a1.feedback)/4, (1023 - a1.target)/4);
     sendValues('A', a1.feedback/4, a1.target/4);
-    sendValues('a', 1*16 + !a1.enabled + !a1.enabled * 2 + !a3.enabled * 4, a1.speed);
+    sendValues('a', 16 + !a1.enabled + !a2.enabled * 2 + !a3.enabled * 4, a1.speed);
   } else if (serialFeedback == 2) {
-    sendValues('B', (1023 - a2.feedback)/4, (1023 - a2.target)/4);
-    sendValues('b', 1*16 + !a1.enabled + !a1.enabled * 2 + !a3.enabled * 4, a2.speed);
+    sendValues('B', a2.feedback/4, a2.target/4);
+    sendValues('b', 16 + !a1.enabled + !a2.enabled * 2 + !a3.enabled * 4, a2.speed);
   } else if (serialFeedback == 3) {
-    sendValues('C', (1023 - a3.feedback)/4, (1023 - a3.target)/4);
-    sendValues('c', 1*16 + !a1.enabled + !a1.enabled * 2 + !a3.enabled * 4, a3.speed);
+    sendValues('C', a3.feedback/4, a3.target/4);
+    sendValues('c', 16 + !a1.enabled + !a2.enabled * 2 + !a3.enabled * 4, a3.speed);
   }
 }
 
@@ -141,7 +140,7 @@ void initAxis(Axis *a, Adafruit_DCMotor *motor, int feedbackPin) {
   a->cutoffMax = 1024;  // fix me
   a->clipMin = 100;
   a->clipMax = 923;
-  a->backupSpeed = 128;
+  a->adjustSpeed = 128;
   a->lshift = 0;
   a->rshift = 0;
   a->kp_x100 = 420;
@@ -235,15 +234,15 @@ void parseCommand() {
       break;
     case 'V':
       a1.deadzone = rxBuffer[1];
-      a1.backupSpeed = rxBuffer[2];
+      a1.adjustSpeed = rxBuffer[2];
       break;
     case 'W':
       a2.deadzone = rxBuffer[1];
-      a2.backupSpeed = rxBuffer[2];
+      a2.adjustSpeed = rxBuffer[2];
       break;
     case 'X':
       a3.deadzone = rxBuffer[1];
-      a3.backupSpeed = rxBuffer[2];
+      a3.adjustSpeed = rxBuffer[2];
       break;
     case 'Z':
       // TODO: pid  proceess divider
@@ -380,13 +379,13 @@ void parseCommand() {
             sendValues('U', a3.cutoffMin, a3.clipMin);
             break;
           case 'V':
-            sendValues('V', a1.deadzone, a1.backupSpeed);
+            sendValues('V', a1.deadzone, a1.adjustSpeed);
             break;
           case 'W':
-            sendValues('W', a2.deadzone, a2.backupSpeed);
+            sendValues('W', a2.deadzone, a2.adjustSpeed);
             break;
           case 'X':
-            sendValues('X', a3.deadzone, a3.backupSpeed);
+            sendValues('X', a3.deadzone, a3.adjustSpeed);
             break;
           case 'Y':
             sendValues('Y', 16 * !a1.enabled + (!a2.enabled*2) + (!a3.enabled * 4), 0); // TODO: Support process divider
@@ -555,19 +554,19 @@ void processFeedback(Axis *a) {
 
   a->target = constrain(a->target, a->clipMin, a->clipMax);
   
-  if ((a->feedback > a->clipMax) && a->backupSpeed > 0) {
+  if ((a->feedback > a->clipMax) && a->adjustSpeed > 0) {
     // we overshot, so back up a bit
-    a->speed = a->backupSpeed;
+    a->speed = a->adjustSpeed;
     a->direction = BACKWARD;
     a->motor->setSpeed(a->speed);
     a->motor->run(a->direction);
-  } else if ((a->feedback < a->clipMin) && a->backupSpeed > 0) {
+  } else if ((a->feedback < a->clipMin) && a->adjustSpeed > 0) {
     // we undershot, so move forward a bit
-    a->speed = a->backupSpeed;
+    a->speed = a->adjustSpeed;
     a->direction = FORWARD;
     a->motor->setSpeed(a->speed);
     a->motor->run(a->direction);
-  } else if ((a->speed > 0) && ((a->feedback > a->cutoffMax) || (a->feedback < a->cutoffMin))){
+  } else if ((a->speed > 0) && ((a->feedback >= a->cutoffMax) || (a->feedback <= a->cutoffMin))){
     // we exceeded the cutoff, and as a safety precaution, disable the axis.
     disableAxis(a);
   } else if (a->target > (a->feedback + a->deadzone)) {
