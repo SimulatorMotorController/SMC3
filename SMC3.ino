@@ -33,6 +33,7 @@
 //    [Sxy],[Txy],[Uxy]   Send the cutoff and clip minimum values where x is the cutoff, and y is the clip (applied as 1023 - min as max for both)
 //    [Vxy],[Wxy],[Xxy]   Send the feedback dead zone (x) and the backup speed (y) for each motor
 //    [rdx]               Read a value from the controller where x is the command code (A-Z) for the parameter to read    
+//    [rd~]               Read PWM frequency for motors 1 and (2,3)
 //    [ena]               Enable all motors
 //    [enX]               Enable a specific motor where X is the motor number (1,2,3)
 //    [dis]               Disable all motors
@@ -94,7 +95,7 @@ void setup() {
   initAxis(&a2, motor2, A1); // Initialize Axis 2
   initAxis(&a3, motor3, A2); // Initialize Axis 3
   
-  Serial.begin(115200);
+  Serial.begin(500000);
 
   AFMS.begin();
 }
@@ -247,6 +248,9 @@ void parseCommand() {
     case 'Z':
       // TODO: pid  proceess divider
       break;
+    case '~':
+      // TODO: set PWM frequency
+      break;
 
     case 'd':
       // disable axes
@@ -334,10 +338,10 @@ void parseCommand() {
             sendValue('G', a1.ki_x100);
             break;
           case 'H':
-            sendValue('G', a2.ki_x100);
+            sendValue('H', a2.ki_x100);
             break;
           case 'I':
-            sendValue('G', a3.ki_x100);
+            sendValue('I', a3.ki_x100);
             break;
           case 'J':
             sendValue('J', a1.kd_x100);
@@ -373,7 +377,7 @@ void parseCommand() {
             sendValues('T', a2.cutoffMin, a2.clipMin);
             break;
           case 'U':
-            sendValues('S', a3.cutoffMin, a3.clipMin);
+            sendValues('U', a3.cutoffMin, a3.clipMin);
             break;
           case 'V':
             sendValues('V', a1.deadzone, a1.backupSpeed);
@@ -384,6 +388,14 @@ void parseCommand() {
           case 'X':
             sendValues('X', a3.deadzone, a3.backupSpeed);
             break;
+          case 'Y':
+            sendValues('Y', 16 * !a1.enabled + (!a2.enabled*2) + (!a3.enabled * 4), 0); // TODO: Support process divider
+            break;
+          case 'Z':
+            sendValue('Z', 0); // TODO: Was delta loop count
+            break;
+          case '~':
+            sendValues('~', 16, 16); // default PWM of 1.6khz from chip, but doesn't support setting as of yet (stote local value)
           default:
             sendError();
             break;
