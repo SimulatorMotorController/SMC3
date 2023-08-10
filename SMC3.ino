@@ -4,7 +4,7 @@
 //****************************************************************************************************************
 
 // Set to MODE1 for use with a typical H-Bride that requires PWM and 1 or 2 direction inputs
-// Set to MODE2 for a 43A "Chinese" IBT-2 H-Bridge from e-bay or equiv
+/// Set to MODE2 for a 43A "Chinese" IBT-2 H-Bridge from e-bay or equiv
 
 #define MODE2    
 
